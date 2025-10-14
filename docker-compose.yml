@@ -1,0 +1,21 @@
+version: "3.9"
+services:
+  web:
+    build: .
+    ports: ["8080:80"]
+    env_file: [.env]
+    volumes:
+      - ./app:/var/www/html
+      - ./logs:/var/log/app
+    depends_on: [db]
+  db:
+    image: mysql:8
+    environment:
+      MYSQL_DATABASE: apmnote
+      MYSQL_USER: apm
+      MYSQL_PASSWORD: apm
+      MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - dbdata:/var/lib/mysql
+volumes:
+  dbdata:
