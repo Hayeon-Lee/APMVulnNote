@@ -6,6 +6,7 @@
   <a href="/">Home</a>
   <a href="/posts">Posts</a>
   <a href="/health">Health</a>
+  <a href="/upload">Upload</a>
   <?php $u = current_user(); if ($u): ?>
     <span class="text-muted">Hi, <?=esc($u['username'])?></span>
     <a href="/logout">Logout</a>

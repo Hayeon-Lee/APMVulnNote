@@ -3,7 +3,24 @@ require_once __DIR__.'/../src/lib/db.php';
 require_once __DIR__.'/../src/lib/auth.php';
 require_once __DIR__.'/../src/lib/util.php';
 require_once __DIR__.'/../src/lib/logger.php';
+require_once __DIR__.'/../src/lib/config.php';
+require_once __DIR__.'/../src/lib/validate.php';
+require_once __DIR__.'/../src/lib/errors.php';
+require_once __DIR__.'/../src/lib/upload.php';
+
+install_error_handlers();
 start_secure_session();
+
+// 보안 헤더(최소 셋)
+header('X-Content-Type-Options: nosniff');
+header('Referrer-Policy: strict-origin-when-cross-origin');
+header('X-Frame-Options: DENY');
+header('Permissions-Policy: geolocation=(), microphone=(), camera=()');
+
+// CSP: 우리가 쓰는 리소스만 허용 (Bootstrap CSS CDN 허용)
+$bootstrap = "https://cdn.jsdelivr.net";
+$csp = "default-src 'self'; style-src 'self' $bootstrap 'unsafe-inline'; img-src 'self' data:; script-src 'self';";
+header("Content-Security-Policy: $csp");
 
 $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
@@ -17,7 +34,7 @@ if ($path === '/health') {
 if ($path === '/login' && $_SERVER['REQUEST_METHOD']==='GET') { include __DIR__.'/../src/views/login.php'; exit; }
 if ($path === '/login' && $_SERVER['REQUEST_METHOD']==='POST') {
   require_once __DIR__.'/../src/lib/db.php';
-  $u = trim($_POST['username'] ?? '');
+  $u = matches('아이디', $_POST['username'] ?? '', '/^[a-zA-Z0-9_\-\.]{1,32}$/');
   $p = $_POST['password'] ?? '';
   $stmt = db()->prepare('SELECT id,username,password,role FROM users WHERE username=?');
   $stmt->execute([$u]);
@@ -50,10 +67,11 @@ if ($path === '/posts/new' && $_SERVER['REQUEST_METHOD']==='GET') {
 // New post (POST)
 if ($path === '/posts/new' && $_SERVER['REQUEST_METHOD']==='POST') {
   require_login();
-  $title = trim($_POST['title'] ?? '');
-  $body  = trim($_POST['body'] ?? '');
-  if ($title === '' || strlen($title) > 200 || $body === '') {
-    $error = '제목/본문을 확인하세요.'; render('posts/new', compact('error')); exit;
+  try {
+    $title = str_between('제목', $_POST['title'] ?? '', 1, 200);
+    $body  = str_between('본문', $_POST['body'] ?? '', 1, 8000);
+  } catch (ValidationError $e) {
+    $error = $e->getMessage(); render('posts/new', compact('error')); exit;
   }
   $stmt = db()->prepare("INSERT INTO posts(user_id,title,body) VALUES (?,?,?)");
   $stmt->execute([ current_user()['id'], $title, $body ]);
@@ -79,40 +97,55 @@ if (preg_match('#^/posts/(\d+)$#', $path, $m) && $_SERVER['REQUEST_METHOD']==='G
 // Create comment
 if (preg_match('#^/posts/(\d+)/comments$#', $path, $m) && $_SERVER['REQUEST_METHOD']==='POST') {
   require_login();
-  $postId = (int)$m[1];
-  $content = trim($_POST['content'] ?? '');
-  if ($content === '' || strlen($content) > 2000) {
-    header("Location: /posts/$postId"); exit;
-  }
+  try { $content = str_between('댓글', $_POST['content'] ?? '', 1, 2000); }
+  catch (ValidationError $e) { header("Location: /posts/{$m[1]}"); exit; }
   $stmt = db()->prepare("INSERT INTO comments(post_id,user_id,content) VALUES (?,?,?)");
-  $stmt->execute([$postId, current_user()['id'], $content]);
-  app_log('INFO', 'comment_created', ['post'=>$postId,'user'=>current_user()['id']]);
-  header("Location: /posts/$postId"); exit;
+  $stmt->execute([(int)$m[1], current_user()['id'], $content]);
+  app_log('INFO', 'comment_created', ['post'=>(int)$m[1],'user'=>current_user()['id']]);
+  header("Location: /posts/{$m[1]}"); exit;
 }
 
-// Home
-render('posts/list', ['posts' => db()->query(
-  "SELECT p.id, p.title, p.created_at, u.username
-   FROM posts p LEFT JOIN users u ON u.id = p.user_id
-   ORDER BY p.id DESC LIMIT 10")->fetchAll()
-]);
+// 업로드 폼
+if ($path === '/upload' && $_SERVER['REQUEST_METHOD']==='GET') {
+  require_login();
+  render('upload/form'); exit;
+}
 
-$user = current_user();
-?>
-<!doctype html><html><head><meta charset="utf-8">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
-<title>APMVulnNote</title></head>
-<body class="p-4">
-  <nav class="mb-3 d-flex gap-3">
-    <a href="/">Home</a>
-    <a href="/health">Health</a>
-    <?php if($user): ?>
-      <span class="text-muted">Hi, <?=$user['username']?></span>
-      <a href="/logout">Logout</a>
-    <?php else: ?>
-      <a href="/login">Login</a>
-    <?php endif; ?>
-  </nav>
-  <h1>APMVulnNote</h1>
-  <p>스캐폴딩 완료! <code>/health</code> 체크로 DB 연결 상태를 확인하세요.</p>
-</body></html>
+// 업로드 처리
+if ($path === '/upload' && $_SERVER['REQUEST_METHOD']==='POST') {
+  require_login();
+  try {
+    [$fname, $mime] = save_uploaded_file($_FILES['file'] ?? []);
+    app_log('INFO','file_uploaded',['file'=>$fname,'mime'=>$mime,'user'=>current_user()['id']]);
+    header("Location: /download/$fname");
+  } catch (Throwable $e) {
+    $error = $e->getMessage(); render('upload/form', compact('error')); 
+  }
+  exit;
+}
+
+// 다운로드(웹루트 밖에서 안전하게 서빙)
+if (preg_match('#^/download/([\w\.\-]+)$#', $path, $m)) {
+  $fname = $m[1];
+  $full = uploads_path()."/$fname";
+  if (!is_file($full)) { http_response_code(404); echo "Not Found"; exit; }
+  $fi = new finfo(FILEINFO_MIME_TYPE); $mime = $fi->file($full) ?: 'application/octet-stream';
+  header("Content-Type: $mime");
+  header('Content-Disposition: inline; filename="'.basename($fname).'"');
+  readfile($full); exit;
+}
+
+
+// Home
+if ($path === '/' || $path === '') {
+  render('posts/list', ['posts' => db()->query(
+    "SELECT p.id, p.title, p.created_at, u.username
+     FROM posts p LEFT JOIN users u ON u.id = p.user_id
+     ORDER BY p.id DESC LIMIT 10"
+  )->fetchAll()]);
+  exit;
+}
+
+http_response_code(404);
+include __DIR__ . '/../src/views/partials/error_404.php';
+exit;
