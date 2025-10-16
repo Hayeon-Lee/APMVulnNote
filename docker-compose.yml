@@ -6,7 +6,7 @@ services:
     env_file: [.env]
     volumes:
       - ./app:/var/www/html
-      - ./logs:/var/log/app
+      - applogs:/var/log/app
     depends_on: [db]
   db:
     image: mysql:8
@@ -19,3 +19,4 @@ services:
       - dbdata:/var/lib/mysql
 volumes:
   dbdata:
+  applogs:
