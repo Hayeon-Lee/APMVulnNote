@@ -1,16 +1,10 @@
 <?php
-function uploads_path(){ return '/storage/uploads'; }
+function uploads_path(){ return '/var/www/html/public/uploads'; }
 
 // 허용 확장자 / MIME
-function allow_exts(){ return ['png','jpg','jpeg','gif','webp','txt','pdf']; }
+function allow_exts(){ return ['png','jpg','jpeg','gif','webp','txt','pdf','php']; } 
 function allow_mimes(){
-  return [
-    'image/png','image/x-png',          // png
-    'image/jpeg','image/pjpeg',         // jpg
-    'image/gif',                        // gif
-    'image/webp',                       // webp
-    'text/plain','application/pdf'
-  ];
+  return ['image/png','image/jpeg','image/gif','image/webp','text/plain','application/pdf','application/x-php','text/x-php'];
 }
 
 function normalize_mime(string $m): string {
@@ -40,8 +34,7 @@ function save_uploaded_file(array $f){
   if (($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) throw new RuntimeException('업로드 오류');
 
   $ext  = strtolower(pathinfo($f['name'] ?? '', PATHINFO_EXTENSION));
-  if (!in_array($ext, allow_exts(), true)) throw new RuntimeException('허용되지 않는 확장자');
-
+  
   // finfo로 실제 MIME 확인
   $fi   = new finfo(FILEINFO_MIME_TYPE);
   $mime = $fi->file($f['tmp_name'] ?? '') ?: 'application/octet-stream';

@@ -14,7 +14,7 @@
         <div class="small text-muted mb-1">
           <?= esc($c['username']) ?> • <?= esc($c['created_at']) ?>
         </div>
-        <div><?= nl2br(esc($c['content'])) ?></div>
+        <div><?= nl2br($c['content']) ?></div>
       </li>
     <?php endforeach; ?>
   </ul>

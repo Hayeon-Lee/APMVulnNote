@@ -20,7 +20,7 @@ header('Permissions-Policy: geolocation=(), microphone=(), camera=()');
 // CSP: 우리가 쓰는 리소스만 허용 (Bootstrap CSS CDN 허용)
 $bootstrap = "https://cdn.jsdelivr.net";
 $csp = "default-src 'self'; style-src 'self' $bootstrap 'unsafe-inline'; img-src 'self' data:; script-src 'self';";
-header("Content-Security-Policy: $csp");
+//header("Content-Security-Policy: $csp");
 
 $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
@@ -40,7 +40,6 @@ if ($path === '/login' && $_SERVER['REQUEST_METHOD']==='POST') {
   $stmt->execute([$u]);
   $row = $stmt->fetch();
   if ($row && password_verify($p, $row['password'])) {
-    session_regenerate_id(true);
     $_SESSION['user'] = ['id'=>$row['id'],'username'=>$row['username'],'role'=>$row['role']];
     header('Location: /'); exit;
   }
@@ -50,11 +49,20 @@ if ($path === '/login' && $_SERVER['REQUEST_METHOD']==='POST') {
 if ($path === '/logout') { session_destroy(); header('Location: /'); exit; }
 // Posts list
 if ($path === '/posts' && $_SERVER['REQUEST_METHOD']==='GET') {
-  $stmt = db()->query("SELECT p.id, p.title, p.created_at, u.username
-                       FROM posts p LEFT JOIN users u ON u.id = p.user_id
-                       ORDER BY p.id DESC LIMIT 50");
-  $posts = $stmt->fetchAll();
-  app_log('INFO', 'posts_list');
+  $q = $_GET['q'] ?? '';
+  if ($q !== '') {
+    $sql = "SELECT p.id, p.title, p.created_at, u.username
+            FROM posts p LEFT JOIN users u ON u.id = p.user_id
+            WHERE p.title LIKE '%$q%'
+            ORDER BY p.id DESC LIMIT 50";
+    $posts = db()->query($sql)->fetchAll();
+  } else {
+    $stmt = db()->query("SELECT p.id, p.title, p.created_at, u.username
+                         FROM posts p LEFT JOIN users u ON u.id = p.user_id
+                         ORDER BY p.id DESC LIMIT 50");
+    $posts = $stmt->fetchAll();
+  }
+  app_log('DEBUG', 'posts_list_handler', ['q' => $q]); // 디버그용
   render('posts/list', compact('posts')); exit;
 }
 
@@ -135,6 +143,12 @@ if (preg_match('#^/download/([\w\.\-]+)$#', $path, $m)) {
   readfile($full); exit;
 }
 
+// /out?url=...
+if ($path === '/out' && isset($_GET['url'])) {
+  app_log('INFO', 'out_redirect', ['url'=>$_GET['url']]);
+  header('Location: ' . $_GET['url']);  
+  exit;
+}
 
 // Home
 if ($path === '/' || $path === '') {

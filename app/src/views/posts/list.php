@@ -1,6 +1,10 @@
 <h1 class="mb-3">Posts</h1>
 <div class="mb-3">
   <?php if (current_user()): ?>
+    <form class="mb-3" method="get" action="/posts" style="max-width:360px">
+      <input class="form-control" name="q" value="<?=esc($_GET['q']??'')?>" placeholder="Search title">
+    </form>
+
     <a class="btn btn-primary" href="/posts/new">New Post</a>
   <?php endif; ?>
 </div>
